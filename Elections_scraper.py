@@ -7,19 +7,20 @@ discord: Romana B.
 
 import argparse
 import csv
+import re
 import requests
 from bs4 import BeautifulSoup
-import os
-import re
+from urllib.parse import urlparse, parse_qs
+
 
 def is_valid_url(url):
     return re.match(r'^https?://', url) is not None
 
 
 def check_csv_extension(output_file):
-    """Kontrola, zda výstupní soubor má příponu .csv"""
     if not output_file.endswith(".csv"):
         raise ValueError("Chyba: Výstupní soubor musí mít příponu '.csv'.")
+
 
 def get_locations(url):
     response = requests.get(url)
@@ -40,10 +41,21 @@ def get_locations(url):
     return locations
 
 
-def get_election_details_for_location(location_code):
-    url = f"https://www.volby.cz/pls/ps2017nss/ps311?xjazyk=CZ&xkraj=8&xobec={location_code}&xvyber=5201"
-    response = requests.get(url)
+def get_election_details_for_location(location_code, base_url):
+    parsed_url = urlparse(base_url)
+    query_params = parse_qs(parsed_url.query)
+
+    xjazyk = query_params.get("xjazyk", ["CZ"])[0]
+    xkraj = query_params.get("xkraj", [None])[0]
+    xvyber = query_params.get("xnumnuts", [None])[0]
+
+    if not xkraj or not xvyber:
+        print("Chyba: URL neobsahuje parametr xkraj nebo xnumnuts.")
+        return {}
+
+    url = f"https://www.volby.cz/pls/ps2017nss/ps311?xjazyk={xjazyk}&xkraj={xkraj}&xobec={location_code}&xvyber={xvyber}"
     
+    response = requests.get(url)
     if response.status_code != 200:
         print(f"Chyba: Nepodařilo se stáhnout data pro lokalitu {location_code}. HTTP {response.status_code}")
         return {}
@@ -107,7 +119,7 @@ def save_to_csv(data, output_file):
             for party in party_names:
                 row_data.append(row["strany"].get(party, "N/A"))
             writer.writerow(row_data)
-            
+
 
 def main():
     try:
@@ -130,7 +142,7 @@ def main():
         
         all_data = []
         for code, name in locations.items():
-            election_details = get_election_details_for_location(code)
+            election_details = get_election_details_for_location(code, args.url)
             election_details["code"] = code
             election_details["name"] = name
             all_data.append(election_details)
@@ -148,7 +160,7 @@ def main():
         print(f"Neočekávaná chyba: {e}")
         print("Oprava: Ujistěte se, že URL i výstupní soubor jsou zadány správně.")
 
-    
 
 if __name__ == "__main__":
     main()
+
