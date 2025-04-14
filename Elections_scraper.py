@@ -5,6 +5,7 @@ email: romanabelohoubková@gmial.com
 discord: Romana B.
 """
 
+import sys
 import argparse
 import csv
 import re
@@ -14,7 +15,13 @@ from urllib.parse import urlparse, parse_qs
 
 
 def is_valid_url(url):
-    return re.match(r'^https?://', url) is not None
+    if not re.match(r'^https?://', url):
+        raise ValueError("Chyba: Zadaná adresa musí začínat na 'http://' nebo 'https://'.")
+    if "volby.cz" not in url:
+        raise ValueError("Chyba: Zadaná adresa není z oficiálního volebního webu 'volby.cz'.")
+    if "ps32" not in url:
+        raise ValueError("Chyba: URL nevede na stránku se seznamem obcí (musí obsahovat 'ps32').")
+    return True
 
 
 def check_csv_extension(output_file):
@@ -119,46 +126,53 @@ def save_to_csv(data, output_file):
             for party in party_names:
                 row_data.append(row["strany"].get(party, "N/A"))
             writer.writerow(row_data)
-
+            
 
 def main():
     try:
+        if len(sys.argv) != 3:
+            raise ValueError("Chyba: Script vyžaduje zadání dvou argumentů v pořadí:\n    1) URL s výsledky voleb\n    2) Název výstupního souboru .csv")
+
         parser = argparse.ArgumentParser(description="Stažení dat z volebního webu a uložení do CSV.")
         parser.add_argument("url", type=str, help="URL územního celku")
         parser.add_argument("output_file", type=str, help="Název výstupního CSV souboru")
         args = parser.parse_args()
-    
-        if not is_valid_url(args.url):
-            raise ValueError("Chyba: První argument musí být platná URL adresa začínající na http:// nebo https://")
 
+        is_valid_url(args.url)
         check_csv_extension(args.output_file)
 
         print(f"STAHUJI DATA Z VYBRANÉHO URL: {args.url}")
 
         locations = get_locations(args.url)
         if not locations:
-            print("Chyba: Data nebyla nalezena.")
-            return
-        
+            raise ValueError("Chyba: Na zadané URL nebyly nalezeny žádné lokality (obce).")
+
         all_data = []
         for code, name in locations.items():
             election_details = get_election_details_for_location(code, args.url)
+            if not election_details:
+                print(f"Upozornění: Nepodařilo se načíst data pro lokalitu {code} – {name}")
+                continue
             election_details["code"] = code
             election_details["name"] = name
             all_data.append(election_details)
-        
+
+        if not all_data:
+            raise ValueError("Chyba: Nepodařilo se stáhnout žádná data z jednotlivých lokalit.")
+
         save_to_csv(all_data, args.output_file)
 
         print(f"UKLÁDÁM DO SOUBORU: {args.output_file}")
         print("UKONČUJI Elections Scraper")
-    
+
     except ValueError as e:
-        print(f"{e}")
-        print("Oprava: Zkontrolujte pořadí argumentů. Správné pořadí je: <URL> <název_souboru.csv>")
+        print(f"\n{e}")
+        print("Oprava: Zkontrolujte správnost zadané URL nebo názvu výstupního souboru (musí mít příponu .csv).")
 
     except Exception as e:
-        print(f"Neočekávaná chyba: {e}")
-        print("Oprava: Ujistěte se, že URL i výstupní soubor jsou zadány správně.")
+        print(f"\nNeočekávaná chyba: {e}")
+        print("Oprava: Ujistěte se, že máte připojení k internetu a že stránka existuje.")
+
 
 
 if __name__ == "__main__":
